@@ -28,6 +28,8 @@ def keep_tma(conf):
     configs=list(filter(keep_tma, configs_tma)), 
     key=['B_Seqlen', 'HEAD_DIM']
 )
+
+#gird(Tr, B*H, 1), 每个线程block处理一个序列的一个head的Br个token/序列
 @triton.jit
 def flash_attentionv2_nopad_kernel(
     Q, K, V, O,
@@ -43,6 +45,11 @@ def flash_attentionv2_nopad_kernel(
 ):
     """
     flashattentionv1 内核实现, 支持 nopad 计算, 输入为 3 维张量
+    Q: (B*S, H, Hd)
+    K: (B*S, KVH, Hd)
+    V: (B*S, KVH, Hd)
+    B_Start_Loc: (B, )
+    B_Seqlen: (B, )
     """
     block_m_idx = tl.program_id(0)
     cur_bh = tl.program_id(1)
@@ -147,9 +154,11 @@ def flash_attentionv2_no_pad(
     ):
     """Compute Flash-attention, can't support fp32 input
     参数:
-        q: Query tensor, shape: [bs*m_size, n_heads, head_dim], decode 阶段, q 的 seq_len 和 k v 不一致, 其值为 1
-        k: Key tensor,  shape: [bs*n_size, n_heads, head_dim]. 
-        v: Value tensor, shape is consistent with k. 
+        q: Query tensor, shape: [B*S, H, Hd], decode 阶段, q 的 seq_len 和 k v 不一致, 其值为 1
+        k: Key tensor,  shape:  [B*S, H, Hd]. 
+        v: Value tensor, shape: [B*S, H, Hd]. 
+        b_start_loc: (B, )
+        b_seq_len: (B, )
     """
     output = torch.empty_like(q)
     batchs = b_seq_len.shape[0]

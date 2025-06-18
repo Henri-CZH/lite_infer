@@ -147,6 +147,8 @@ def rope_forward(q, k, cos, sin):
     )
     return q, k
 
+
+# grid(B*S, 1, 1)
 @triton.jit
 def _triton_rope_emb(
     q_ptr,

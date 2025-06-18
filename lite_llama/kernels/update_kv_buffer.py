@@ -3,20 +3,20 @@ import torch
 import triton
 import triton.language as tl
 
-
+# grid(B*S, 1, 1), 每个block线程组处理一个序列的一个token的KV
 @triton.jit
 def _fwd_kernel_update_kv(
-    KV_Values, Select_Index,
-    KV_Buffer,
-    stride_k_bs, stride_k_h, stride_k_d,
-    stride_o_bs, stride_o_h, stride_o_d,
-    head_num,
-    BLOCK_DMODEL: tl.constexpr,
-    BLOCK_HEAD: tl.constexpr
+    KV_Values, Select_Index, # KV_Values: [select_indexs, num_kv_heads * 2, head_dim], Select_Index: (B*S, )
+    KV_Buffer, # [max_num_tokens, num_kv_heads * 2, head_dim]
+    stride_k_bs, stride_k_h, stride_k_d, # KVH * 2 * Hd, Hd, 1
+    stride_o_bs, stride_o_h, stride_o_d, # KVH * 2 * Hd, Hd, 1
+    head_num, # H
+    BLOCK_DMODEL: tl.constexpr, # Hd
+    BLOCK_HEAD: tl.constexpr # H
 ):
     cur_index = tl.program_id(0)
-    offs_h = tl.arange(0, BLOCK_HEAD)
-    offs_d = tl.arange(0, BLOCK_DMODEL)
+    offs_h = tl.arange(0, BLOCK_HEAD) # 0~H
+    offs_d = tl.arange(0, BLOCK_DMODEL) # 0~Hd
 
     dest_index = tl.load(Select_Index + cur_index)
 
@@ -37,7 +37,7 @@ def update_kv_buffer(KV_Values, Select_Index, KV_Buffer):
         - KV_Values: 实际是 cache_kv, 尺寸为 [select_indexs, num_kv_heads * 2, head_dim]。
         - KV_Buffer: 尺寸为 [max_num_tokens, num_kv_heads * 2, head_dim]
     输出:
-        KV_Buffer 张量被填, KV_Buffer[Select_Index[i], :, :] = K[i, :, :]。
+        KV_Buffer 张量被填, KV_Buffer[Select_Index[i], :, :] = [K[i, :, :], V[i, :, :]]。
     """
     seq_len = Select_Index.shape[0] # number_tokens
     head_num = KV_Values.shape[1] # num_kv_head * 2

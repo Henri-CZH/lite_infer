@@ -7,6 +7,7 @@ import triton
 import triton.language as tl
 from .utils import calculate_settings
 
+# gridDim: (batch_size * seq_len, 1, 1)
 @triton.jit
 def skip_rms_norm_kernel_no_view(
     Y_ptr, X_ptr, R_ptr, W_ptr,
@@ -19,6 +20,8 @@ def skip_rms_norm_kernel_no_view(
     has_residual: tl.constexpr,
     BLOCK_SIZE: tl.constexpr,
 ):
+    # X_ptr, Y_ptr, R_ptr: [batch_size, seq_len, hidden_dim]
+    # W_ptr: (D, )
     # pid表示处理的行号: 行索引 = batch_idx * S + seq_idx
     pid = tl.program_id(0)
     batch_idx = pid // S
@@ -55,14 +58,14 @@ def skip_rmsnorm_no_view(X, residual, weight, eps=1e-5):
     B, S, N = X.shape
     Y = torch.empty_like(X)
 
-    x_stride_b, x_stride_s, x_stride_n = X.stride()
-    y_stride_b, y_stride_s, y_stride_n = Y.stride()
+    x_stride_b, x_stride_s, x_stride_n = X.stride() # S*D, D, 1
+    y_stride_b, y_stride_s, y_stride_n = Y.stride() # S*D, D, 1
     w_stride = weight.stride(0)
 
     # 如果 residual 不为 None，则确保与X同shape和stride
     if residual is not None:
         residual = residual.contiguous()  # 确保是连续存储
-        r_stride_b, r_stride_s, r_stride_n = residual.stride()
+        r_stride_b, r_stride_s, r_stride_n = residual.stride() # S*D, D, 1
         has_residual = True
     else:
         # 如果 residual 是 None，则在kernel中不处理residual
@@ -88,19 +91,21 @@ def skip_rmsnorm_no_view(X, residual, weight, eps=1e-5):
 
     return (Y, residual) if residual is not None else (Y, X)
 
+# gridDim: (batch_size * seq_len, 1, 1)
 @triton.jit()
 def rms_norm_kernel(
-    Y,  # pointer to the output
-    X,  # pointer to the input
-    W,  # pointer to the weights
-    y_stride_r,
-    y_stride_c,
+    Y,  # pointer to the output, (B*S, D)
+    X,  # pointer to the input, (B*S, D)
+    W,  # pointer to the weights, (D, )
+    y_stride_r, # N
+    y_stride_c, # 1
     x_stride_r,  # how much to increase the pointer when moving by 1 row
     x_stride_c,  # how much to increase the pointer when moving by 1 col
     N,  # number of columns in X
     eps,  # epsilon to avoid division by zero
-    BLOCK_SIZE: tl.constexpr,
+    BLOCK_SIZE: tl.constexpr, # N
 ):
+    # RMS: xi = gamma * xi / sqrt(sum(xi^2) + eps)
     pid = tl.program_id(0)
     Y += pid * y_stride_r
     X += pid * x_stride_r
@@ -112,26 +117,28 @@ def rms_norm_kernel(
     var = tl.sum(x * x / N, axis=0)
     rrms = 1 / tl.sqrt(var + eps)
 
-    w = tl.load(W + tl.arange(0, BLOCK_SIZE), mask=mask, other=0.0)
+    w = tl.load(W + tl.arange(0, BLOCK_SIZE), mask=mask, other=0.0) # gamma
     y = (x * rrms).to(Y.dtype.element_ty) * w
     tl.store(Y + cols * y_stride_c, y, mask=mask)
 
+# gridDim: (batch_size * seq_len, 1, 1)
 @triton.jit()
 def skip_rms_norm_kernel(
-    Y,  # pointer to the output
-    X,  # pointer to the input
-    R,  # pointer to the residual
-    W,  # pointer to the weights
-    y_stride_r,
-    y_stride_c,
+    Y,  # pointer to the output, (B*S, D)
+    X,  # pointer to the input, (B*S, D)
+    R,  # pointer to the residual, (B*S, D)
+    W,  # pointer to the weights, (D, )
+    y_stride_r, # N
+    y_stride_c, # 1
     x_stride_r,  # how much to increase the pointer when moving by 1 row
     x_stride_c,  # how much to increase the pointer when moving by 1 col
     r_stride_r,  # how much to increase the pointer when moving by 1 row
     r_stride_c,  # how much to increase the pointer when moving by 1 col
     N,  # number of columns in X
     eps,  # epsilon to avoid division by zero
-    BLOCK_SIZE: tl.constexpr,
+    BLOCK_SIZE: tl.constexpr, # N
 ):
+    # RMS: xi = gama * xi / sqrt(sum(xi^2) + eps)
     pid = tl.program_id(0)
     Y += pid * y_stride_r
     X += pid * x_stride_r
@@ -142,27 +149,29 @@ def skip_rms_norm_kernel(
     x = tl.load(X + cols * x_stride_c, mask, other=0.0).to(tl.float32)
     r = tl.load(R + cols * r_stride_c, mask, other=0.0).to(tl.float32)
 
-    x += r
+    x += r # residual
     tl.store(R + cols * r_stride_c, x, mask=mask)
 
     var = tl.sum(x * x / N, axis=0)
     rrms = 1 / tl.sqrt(var + eps)
 
-    w = tl.load(W + tl.arange(0, BLOCK_SIZE), mask=mask, other=0.0)
+    w = tl.load(W + tl.arange(0, BLOCK_SIZE), mask=mask, other=0.0) # gamma
     y = (x * rrms).to(Y.dtype.element_ty) * w
     tl.store(Y + cols * y_stride_c, y, mask=mask)
 
 @torch.no_grad()
 def skip_rmsnorm(X, residual, weight, eps=1e-5):
+    # X, residual: [batch_size, seq_len, hidden_dim]
+    # weight: (hidden_dim, )
     orig_shape = X.shape
-    X = X.view(-1, orig_shape[-1])
+    X = X.view(-1, orig_shape[-1]) # [batch_size * seq_len, hidden_dim]
 
-    M, N = X.shape # n_rows, n_cols
-    BLOCK_SIZE, num_warps = calculate_settings(N)
-    Y = torch.empty_like(X)
+    M, N = X.shape # [batch_size * seq_len, hidden_dim]
+    BLOCK_SIZE, num_warps = calculate_settings(N) # N, XX
+    Y = torch.empty_like(X) # [batch_size * seq_len, hidden_dim]
 
     if residual is not None:
-        residual = residual.view(-1, N)
+        residual = residual.view(-1, N) # [batch_size * seq_len, hidden_dim]
         skip_rms_norm_kernel[M,](
             Y, X, residual, weight, 
             N, 1, N, 1, N, 1, N, 

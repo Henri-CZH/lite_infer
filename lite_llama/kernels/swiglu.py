@@ -45,11 +45,18 @@ def calculate_settings(n):
 def silu(x):
     return x * tl.sigmoid(x)
 
-
+# grid(B*S, 1, 1), 每个线程block处理一个序列的一个token
 @triton.jit
 def _swiglu_forward_kernel(
     a_ptr, b_ptr, c_ptr, row_stride, n_cols: tl.constexpr, BLOCK_SIZE: tl.constexpr
 ):
+    # a: (B*S, 8/3*D)
+    # b: (B*S, 8/3*D)
+    # c: (B*S, 8/3*D)
+    # row_stride: 8/3*D
+    # n_cols: 8/3*D
+    # BLOCK_SIZE: 8/3*D
+
     program_id = tl.program_id(0).to(tl.int64)
 
     # locate start index
@@ -68,21 +75,23 @@ def _swiglu_forward_kernel(
 
 
 def swiglu_forward(a, b):
+    # a: (B, S, 8/3*D)
+    # b: (B, S, 8/3*D)
     ori_shape = a.shape # ori_shape is [batch_size, seq_len, hidden_size]
 
-    n_cols = ori_shape[-1]
-    a = a.view(-1, n_cols)
-    b = b.view(-1, n_cols)
+    n_cols = ori_shape[-1] # 8/3*D
+    a = a.view(-1, n_cols) # (B, S, 8/3*D)->(B*S, 8/3*D)
+    b = b.view(-1, n_cols) # (B, S, 8/3*D)->(B*S, 8/3*D)
     c = torch.empty_like(a)
-    n_rows = a.shape[0]
+    n_rows = a.shape[0] # (B*S)
 
-    BLOCK_SIZE, num_warps = calculate_settings(n_cols)
+    BLOCK_SIZE, num_warps = calculate_settings(n_cols) # 8/3*D, XX
 
     _swiglu_forward_kernel[(n_rows,)](
         a,
         b,
         c,
-        c.stride(-2), # c.stride(-2) = n_cols
+        c.stride(-2), # c.stride(-2) = 8/3*D
         n_cols=n_cols,
         BLOCK_SIZE=BLOCK_SIZE,
         num_warps=num_warps,

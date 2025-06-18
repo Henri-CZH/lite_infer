@@ -177,7 +177,7 @@ class LlamaRotaryEmbedding(nn.Module):
         
         参数:
             x (`torch.Tensor`):
-                输入张量。
+                输入张量, [B, S, D]
             position_ids (`torch.Tensor`):
                 位置ID张量, 形状为 [batch_size, seq_length]。
         
@@ -217,7 +217,7 @@ class LlamaRotaryEmbedding(nn.Module):
         sin = sin * self.attention_scaling
 
         # 返回与输入dtype相同的cos和sin编码
-        return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
+        return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype) # [batch_size, seq_length, head_dim]
 
 # Copied from transformers.models.llama.modeling_llama.LlamaRotaryEmbedding with Llama->Qwen2
 class Qwen2RotaryEmbedding(nn.Module):
