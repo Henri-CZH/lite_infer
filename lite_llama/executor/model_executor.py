@@ -333,10 +333,11 @@ class ModelExecutor:
     def decode_alloc_kv_cache(self, batch_size):
         # TODO: torch.empty 创建的临时张量, 保存分配的非连续 kv_cache 索引空间
         self.atten_info.cur_select_index, _ = self.kv_mem_manager.alloc_kvcache_index(batch_size)
+
+        self.atten_info.b_seq_len += 1
         update_kv_index(self.atten_info.b_req_tokens_table, self.atten_info.b_req_idx, 
                         self.atten_info.b_seq_len, self.atten_info.cur_select_index)
 
-        self.atten_info.b_seq_len += 1
         self.atten_info.max_actual_seq_len += 1
         
         return self.atten_info.cur_select_index # shape [batch_size,]
