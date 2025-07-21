@@ -1,7 +1,7 @@
 import torch
 from typing import Optional
-from lite_llama.utils.prompt_templates import get_prompter
-from lite_llama.generate_stream import GenerateStreamText # 导入 GenerateText 类
+from lite_infer.utils.prompt_templates import get_prompter
+from lite_infer.generate_stream import GenerateStreamText # 导入 GenerateText 类
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="torch._utils")
 

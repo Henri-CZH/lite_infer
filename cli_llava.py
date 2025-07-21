@@ -1,8 +1,8 @@
 import torch
 from typing import Optional
-from lite_llama.llava_generate_stream import LlavaGeneratorStream
-from lite_llama.utils.image_process import vis_images
-from lite_llama.utils.prompt_templates import get_prompter, get_image_token
+from lite_infer.llava_generate_stream import LlavaGeneratorStream
+from lite_infer.utils.image_process import vis_images
+from lite_infer.utils.prompt_templates import get_prompter, get_image_token
 from rich.console import Console
 from rich.prompt import Prompt
 import sys,os
