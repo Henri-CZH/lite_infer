@@ -1,4 +1,4 @@
-# simple_llama
+# ite_infer
 A light llama-like llm inference framework based on the triton kernel
 
 ## 特性
