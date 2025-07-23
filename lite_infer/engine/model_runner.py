@@ -232,3 +232,45 @@ class ModelRunner:
         token_ids = self.sampler(logits, temperatures).tolist() if self.rank == 0 else None # 使用采样器采样得到 token ID
         reset_context() # 重置上下文信息
         return token_ids
+
+    @torch.inference_mode()
+    def capture_cudagraph(self):
+        # 捕获 CUDA 图以提高推理效率。首先初始化输入和输出张量，定义不同批量大小的列表，然后遍历每个批量大小，创建 CUDA 图，进行热身和图捕获操作，最后保存图和相关变量
+        # 就像是为演出录制模板。我们先准备好演出所需的道具和场景（初始化输入和输出张量），确定不同规模演出的模板（定义不同批量大小的列表）。
+        # 然后依次对每个规模的演出进行排练（热身），并录制排练过程（捕获 CUDA 图）。
+        # 最后将录制好的模板保存起来（保存图和相关变量），以便在正式演出时可以直接使用
+        config = self.config
+        hf_config = config.hf_config
+        max_bs = min(self.config.max_num_seqs, 512)
+        max_num_blocks = (config.max_model_len + self.block_size - 1) // self.block_size
+        input_ids = torch.zeros(max_bs, dtype=torch.int64)
+        positions = torch.zeros(max_bs, dtype=torch.int64)
+        slot_mapping = torch.zeros(max_bs, dtype=torch.int32)
+        context_lens = torch.zeros(max_bs, dtype=torch.int32)
+        block_tables = torch.zeros(max_bs, max_num_blocks, dtype=torch.int32)
+        outputs = torch.zeros(max_bs, hf_config.hidden_size)
+        self.graph_bs = [1, 2, 4, 8] + list(range(16, max_bs + 1, 16))
+        self.graphs = {}
+        self.graph_pool = None
+
+        # 遍历每个批量大小， 创建 CUDA 图
+        for bs in reversed(self.graph_bs):
+            graph = torch.cuda.CUDAGraph()
+            set_context(False, slot_mapping=slot_mapping[:bs], context_lens=context_lens[:bs], block_tables=block_tables[:bs]) # 设置上下文信息
+            outputs[:bs] = self.model(input_ids[:bs], positions[:bs])    # warmup
+            with torch.cuda.graph(graph, self.graph_pool):
+                outputs[:bs] = self.model(input_ids[:bs], positions[:bs])    # capture
+            if self.graph_pool is None:
+                self.graph_pool = graph.pool()
+            self.graphs[bs] = graph
+            torch.cuda.synchronize()
+            reset_context()
+
+        self.graph_vars = dict(
+            input_ids=input_ids,
+            positions=positions,
+            slot_mapping=slot_mapping,
+            context_lens=context_lens,
+            block_tables=block_tables,
+            outputs=outputs,
+        )
