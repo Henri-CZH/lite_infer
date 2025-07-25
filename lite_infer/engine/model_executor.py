@@ -12,7 +12,7 @@ from lite_infer.utils.context import set_context, get_context, reset_context
 from lite_infer.utils.loader import load_model
 
 
-class ModelRunner:
+class ModelExecutor:
     def __init__(self, config: Config, rank: int, event: Event | list[Event]):
         # 我们先确定演出的规则和要求（配置信息），然后搭建舞台（初始化分布式进程组）
         # 安排演员就位（设置 CUDA 设备和数据类型）。接着邀请主演（加载模型）和配角（采样器），进行排练（模型预热），准备道具（分配 KV Cache）

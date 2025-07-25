@@ -9,7 +9,7 @@ from lite_infer.config import Config
 from lite_infer.sampling_params import SamplingParams
 from lite_infer.engine.sequence import Sequence
 from lite_infer.engine.scheduler import Scheduler
-from lite_infer.engine.model_runner import ModelRunner
+from lite_infer.engine.model_executor import ModelExecutor
 
 
 class LLMEngine:
@@ -23,19 +23,19 @@ class LLMEngine:
         ctx = mp.get_context("spawn")
         for i in range(1, config.tensor_parallel_size):
             event = ctx.Event()
-            process = ctx.Process(target=ModelRunner, args=(config, i, event))
+            process = ctx.Process(target=ModelExecutor, args=(config, i, event))
             process.start()
             self.ps.append(process)
             self.events.append(event)
-        self.model_runner = ModelRunner(config, 0, self.events)
+        self.model_executor = ModelExecutor(config, 0, self.events)
         self.tokenizer = AutoTokenizer.from_pretrained(config.model, use_fast=True)
         config.eos = self.tokenizer.eos_token_id
         self.scheduler = Scheduler(config)
         atexit.register(self.exit)
 
     def exit(self):
-        self.model_runner.call("exit")
-        del self.model_runner
+        self.model_executor.call("exit")
+        del self.model_executor
         for p in self.ps:
             p.join()
 
@@ -47,7 +47,7 @@ class LLMEngine:
 
     def step(self):
         seqs, is_prefill = self.scheduler.schedule()
-        token_ids = self.model_runner.call("run", seqs, is_prefill)
+        token_ids = self.model_executor.call("run", seqs, is_prefill)
         self.scheduler.postprocess(seqs, token_ids)
         outputs = [(seq.seq_id, seq.completion_token_ids) for seq in seqs if seq.is_finished]
         num_tokens = sum(len(seq) for seq in seqs) if is_prefill else -len(seqs)

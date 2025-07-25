@@ -1,13 +1,13 @@
 # ite_infer
-A light llama-like llm inference framework based on the triton kernel
+A light llama-like llm inference framework based on the triton and CUDA kernel
 
 ## 特性
 
 - 相比 HF transformers, llama3 1B 和 3B 模型加速比最高达 `1.4` 倍。
 - 支持 `llama3`、`Qwen2.5`、`Llava1.5` 模型推理，支持 `top-p` 采样, 支持流式输出。
 - 支持 `CUDA graph`，`prefix caching`。
-- 支持 `flashattention1`、`flashattention2`、 `flashdecoding`(支持 `NopadAttention`)。
-- 支持 kv cache 的高效动态管理（`auto tokenattnetion`）。
+- 支持 `flashattention1`、`flashattention2`、 `flashdecoding`。
+- 支持 kv cache 的高效动态管理（`Pagedattnetion`）。
 - 支持算子融合，如：逐元素相乘 `*` 和 `silu` 的融合, k v 线性层融合, `skip` 和 `rmsnorm` 融合。
 - 部分自定义算子如：`rmsnorm`、`rope`、`softmax`、`逐元素相乘` 等采用高效 `triton` 内核实现。
 
@@ -57,7 +57,14 @@ lite_llama per token latency: 2.277145 ms/token
 Transformers per token latency: 3.268789 ms/token
 ```
 
-## 如何使用
-`cli.py` 程序运行成功后，终端显示界面如下所示，在终端中输入你的问题即可。
+**Performance Results:**
+| Inference Engine | 总时间 (s) | 请求速率 (req/s) | Throughput (token/s) | 平均首token延迟 (ms)        | 平均每token延迟 (token/ms)     | 平均请求延迟 (s)  |
+|------------------|------------|-----------------|----------------------|----------------------------|-------------------------------|------------------|
+|                  |            |                 |                      |                            |                               |                  |
+| lite-infer       |    59.13   |        8        |     1128.36          |     15.14                  |      20.03                    |        25.39     |
 
-![cli](./images/llama3.2_stream_generate.png)
+
+## 如何使用
+`example.py` 程序运行成功后，终端显示界面如下所示，在终端中输入你的问题即可。
+
+
