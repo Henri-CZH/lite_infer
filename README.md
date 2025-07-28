@@ -58,7 +58,7 @@ Transformers per token latency: 3.268789 ms/token
 ```
 
 **Performance Results:**
-| Inference Engine | 总时间 (s) | 请求速率 (req/s) | Throughput (token/s) | 平均首token延迟 (ms)        | 平均每token延迟 (token/ms)     | 平均请求延迟 (s)  |
+| Inference Engine | 总时间 (s) | 请求速率 (req/s) | Throughput (token/s) | 平均首token延迟 (ms)        | 平均每token延迟 (ms/token)     | 平均请求延迟 (s)  |
 |------------------|------------|-----------------|----------------------|----------------------------|-------------------------------|------------------|
 |                  |            |                 |                      |                            |                               |                  |
 | lite-infer       |    59.13   |        8        |     1128.36          |     15.14                  |      20.03                    |        25.39     |
