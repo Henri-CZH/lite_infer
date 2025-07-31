@@ -20,7 +20,7 @@ class LinearBase(nn.Module):
         super().__init__()
         self.input_size = input_size
         self.output_size = output_size
-        self.tp_dim = tp_dim
+        self.tp_dim = tp_dim # 0: column parallel, 1: row paramllel
         self.tp_rank = dist.get_rank()
         self.tp_size = dist.get_world_size()
 
