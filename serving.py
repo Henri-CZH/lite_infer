@@ -4,7 +4,7 @@ import numpy as np
 import argparse
 from random import randint, seed
 from tqdm.auto import tqdm
-from nanovllm import LLM, SamplingParams
+from lite_infer import LLM, SamplingParams
 
 # --- Constants ---
 MODEL_PATH = os.path.expanduser("/root/Data/Qwen3-0.6B/")

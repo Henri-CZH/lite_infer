@@ -2,7 +2,7 @@ from collections import deque
 import xxhash
 import numpy as np
 
-from nanovllm.engine.sequence import Sequence
+from lite_infer.engine.sequence import Sequence
 
 # Block 类可以看作是内存中的一个个 “小房间”，
 class Block:

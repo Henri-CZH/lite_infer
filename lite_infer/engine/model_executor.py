@@ -189,10 +189,13 @@ class ModelExecutor:
         # 就像是为演出的表演风格调整温度。我们依次询问每个演员的表演热情（温度参数），将这些热情程度记录下来（提取温度参数），
         # 然后将其整理成电子表格（张量）并发送到演出场地（CUDA 设备），以便控制表演的风格
         temperatures = []
+        top_ps = []
         # 遍历所有序列
         for seq in seqs:
             temperatures.append(seq.temperature) # 提取温度参数
+            top_ps.append(seq.top_p) # 提取top_p参数
         temperatures = torch.tensor(temperatures, dtype=torch.float32, pin_memory=True).cuda(non_blocking=True)
+        top_ps = torch.tensor(top_ps, dtype=torch.float32, pin_memory=True).cuda(non_blocking=True)
         return temperatures
 
     @torch.inference_mode()
@@ -227,9 +230,9 @@ class ModelExecutor:
         # 根据表演效果选择合适的台词（使用采样器采样得到 token ID），
         # 最后清理演出场地（重置上下文信息）并公布演出结果（返回 token ID）
         input_ids, positions = self.prepare_prefill(seqs) if is_prefill else self.prepare_decode(seqs) # 准备 输入ID、位置信息
-        temperatures = self.prepare_sample(seqs) if self.rank == 0 else None # 准备采样温度参数
+        temperatures, top_ps = self.prepare_sample(seqs) if self.rank == 0 else None # 准备采样温度参数
         logits = self.run_model(input_ids, positions, is_prefill) # 运行模型
-        token_ids = self.sampler(logits, temperatures).tolist() if self.rank == 0 else None # 使用采样器采样得到 token ID
+        token_ids = self.sampler(logits, temperatures, top_ps).tolist() if self.rank == 0 else None # 使用采样器采样得到 token ID
         reset_context() # 重置上下文信息
         return token_ids
 

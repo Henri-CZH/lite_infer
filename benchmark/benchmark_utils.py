@@ -75,11 +75,13 @@ def save_to_pytorch_benchmark_format(args: argparse.Namespace,
         args=args,
         metrics={
             "requests_per_second": [results["requests_per_second"]],
-            "tokens_per_second": [results["tokens_per_second"]],
+            "total_tokens_per_second": [results["total_tokens_per_second"]],
+            "output_tokens_per_second": [results["output_tokens_per_second"]],
         },
         extra_info={
             k: results[k]
-            for k in ["elapsed_time", "num_requests", "total_num_tokens"]
+            for k in ["CUDA graphy", "elapsed_time", "num_requests", "max_input_len", "max_output_len", "total_num_tokens", "total_num_output_tokens",
+                      "total_cached_token", "total_cached_block"]
         })
     if pt_records:
         # Don't use json suffix here as we don't want CI to pick it up

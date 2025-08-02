@@ -4,7 +4,7 @@ from random import randint, seed
 from benchmark.benchmark_utils import save_to_pytorch_benchmark_format
 import argparse
 import json
-from nanovllm import LLM, SamplingParams
+from lite_infer import LLM, SamplingParams
 # from vllm import LLM, SamplingParams
 
 
@@ -15,7 +15,7 @@ def main(args: argparse.Namespace):
     max_input_len = args.input_len
     max_ouput_len = args.output_len
 
-    path = os.path.expanduser("/home/my_ubuntu/AI_deployment/nano-vllm/model/Qwen3-0.6B/")
+    path = os.path.expanduser("add_model_path") # add model path
 
     prompt_token_ids = [[randint(0, 10000) for _ in range(randint(100, max_input_len))] for _ in range(num_seqs)]
     sampling_params = [SamplingParams(temperature=0.6, ignore_eos=True, max_tokens=randint(100, max_ouput_len)) for _ in range(num_seqs)]
@@ -36,10 +36,11 @@ def main(args: argparse.Namespace):
     throughput_total_token = (total_num_prompt_tokens + total_num_output_tokens) / t
     throughput_output_token = total_num_output_tokens / t
     throughput_request = num_seqs / t
-    # used = llm.scheduler.num_cached_block
-    print(f"Total token: {total_num_token} tok, Total output token: {total_num_output_tokens} tok\n"
+
+    print(f"Total token: {total_num_token} tok, Total output token: {total_num_output_tokens} tok \n"
           f"{throughput_total_token:.2f} total tok/s, {throughput_output_token:.2f} total output tok/s \n"
-          f"{throughput_request:.2f} req/s, Time: {t:.2f}s")
+          f"{throughput_request:.2f} req/s, Time: {t:.2f}s \n"
+          f"{llm.scheduler.actual_cached_token} cached tok, {llm.scheduler.actual_cached_block} cached block")
     
     # Output JSON results if specified
     if args.output_json:
@@ -47,10 +48,15 @@ def main(args: argparse.Namespace):
             "CUDA graphy": bool(args.use_cudagraph),
             "elapsed_time": t,
             "num_requests": num_seqs,
+            "max_input_len": max_input_len,
+            "max_output_len": max_ouput_len,
             "total_num_tokens": total_num_token,
             "total_num_output_tokens": total_num_output_tokens,
+            "total_tokens_per_second": total_num_token / t,
+            "output_tokens_per_second": total_num_output_tokens / t,
             "requests_per_second": num_seqs / t,
-            "tokens_per_second": total_num_token / t,
+            "total_cached_token": llm.scheduler.actual_cached_token,
+            "total_cached_block": llm.scheduler.actual_cached_block
         }
         with open(args.output_json, "w") as f:
             json.dump(results, f, indent=4)
@@ -84,7 +90,7 @@ if __name__ == "__main__":
     parser.add_argument("--backend",
                         type=str,
                         choices=["vllm", "lite_infer"],
-                        default="vllm")
+                        default="lite_infer")
     parser.add_argument(
         '--enable-chunked-prefill',
         type=bool,
