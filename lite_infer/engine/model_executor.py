@@ -30,7 +30,7 @@ class ModelExecutor:
         default_dtype = torch.get_default_dtype() # 设置数据类型
         torch.set_default_dtype(hf_config.torch_dtype)
         torch.set_default_device("cuda")
-        self.model = torch.compile(Qwen3ForCausalLM(hf_config), fullgraph=True, dynamic=True, mode="max-autotune")
+        self.model = Qwen3ForCausalLM(hf_config)
         load_model(self.model, config.model) # 加载模型
         self.sampler = Sampler() # 加载采样器
         self.warmup_model() # 进行模型预热
