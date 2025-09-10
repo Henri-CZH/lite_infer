@@ -7,9 +7,10 @@ from tqdm.auto import tqdm
 from lite_infer import LLM, SamplingParams
 
 # --- Constants ---
-MODEL_PATH = os.path.expanduser("/root/Data/Qwen3-0.6B/")
+MODEL_PATH = os.path.expanduser("/home/my_ubuntu/AI_deployment/lite_infer/model/Qwen3-0.6B")
 MAX_INPUT_LEN = 1024
 MAX_OUTPUT_LEN = 1024
+os.environ['TORCH_DYNAMO_CACHE_SIZE_LIMIT'] = '32'
 
 # --- Seed for reproducibility ---
 seed(0)
@@ -53,8 +54,8 @@ class RequestMetrics:
 
 def main():
     """Main function to run the serving benchmark."""
-    parser = argparse.ArgumentParser(description="Serving benchmark for nano-vllm.")
-    parser.add_argument("--num-requests", type=int, default=256, help="Number of requests to process.")
+    parser = argparse.ArgumentParser(description="Serving benchmark for lite_infer.")
+    parser.add_argument("--num-requests", type=int, default=128, help="Number of requests to process.")
     parser.add_argument("--request-rate", type=int, default=8, help="Request rate (requests per second).")
     args = parser.parse_args()
 
@@ -65,8 +66,8 @@ def main():
     llm = LLM(MODEL_PATH, enforce_eager=False, max_model_len=4096)
     engine = llm
 
-    # --- Generate random prompts ---
-    prompts = [[randint(0, 10000) for _ in range(randint(100, MAX_INPUT_LEN))] for _ in range(NUM_REQUESTS)]
+    # --- Generate random prompts_token_ids ---
+    prompts_token_ids = [[randint(0, 10000) for _ in range(randint(100, MAX_INPUT_LEN))] for _ in range(NUM_REQUESTS)]
     sampling_params = [SamplingParams(temperature=0.6, ignore_eos=True, max_tokens=randint(100, MAX_OUTPUT_LEN)) for _ in range(NUM_REQUESTS)]
 
     # --- Generate request arrival times ---
@@ -84,7 +85,8 @@ def main():
             # --- Send new requests ---
             current_time = time.perf_counter()
             while requests_sent < NUM_REQUESTS and current_time - start_time >= arrival_times[requests_sent]:
-                prompt = prompts[requests_sent]
+            # while requests_sent < NUM_REQUESTS:
+                prompt = prompts_token_ids[requests_sent]
                 sp = sampling_params[requests_sent]
                 
                 engine.add_request(prompt, sp)
@@ -98,7 +100,7 @@ def main():
                 requests_sent += 1
 
             # --- Engine step ---
-            if engine.scheduler.waiting or engine.scheduler.running:
+            if not engine.is_finished():
                 finished_outputs, _ = engine.step()
 
                 # Record first token time for all processed sequences
@@ -107,10 +109,11 @@ def main():
                     if seq.seq_id in metrics:
                         metrics[seq.seq_id].record_first_token()
 
+                # for value in finished_outputs.values():
                 for seq_id, output_ids in finished_outputs:
                     if seq_id in metrics:
                         metrics[seq_id].record_first_token() # Ensure first token time is recorded
-                        metrics[seq_id].record_completion(output_ids)
+                        metrics[seq_id].record_completion(output_ids) # output token exclude prompt token
                         
                         completed_latencies.append(metrics[seq_id].latency)
                         avg_latency = np.mean(completed_latencies)
@@ -132,13 +135,24 @@ def main():
     avg_latency = np.mean([m.latency for m in metrics.values() if m.completion_time != -1])
     throughput = total_output_tokens / total_time
 
+    total_num_token = total_output_tokens + total_input_tokens
+    throughput_total_token = (total_input_tokens + total_output_tokens) / total_time
+    throughput_output_token = total_output_tokens / total_time
+    throughput_request = requests_sent / total_time
+
     print("--- Benchmark Results ---")
     print(f"Total time: {total_time:.2f}s")
-    print(f"Requests sent: {requests_sent}")
+    print(f"Total output token: {total_output_tokens}")
+    print(f"实际请求数量: {requests_sent}")
+    print(f"请求速率: {REQUEST_RATE} req/s")
     print(f"Throughput: {throughput:.2f} tokens/s")
-    print(f"Average TTFT: {avg_ttft * 1000:.2f} ms")
-    print(f"Average TPOT: {avg_tpot * 1000:.2f} ms/token")
-    print(f"Average latency: {avg_latency:.2f} s")
+    print(f"首token延迟: {avg_ttft :.2f} s")
+    print(f"token生成延迟: {avg_tpot * 1000:.2f} ms/token")
+    print(f"平均请求用时: {avg_latency:.2f} s")
+    print(f"Total token: {total_num_token} tok, Total output token: {total_output_tokens} tok \n"
+          f"{throughput_total_token:.2f} total tok/s, {throughput_output_token:.2f} total output tok/s \n"
+          f"{throughput_request:.2f} req/s, Time: {total_time:.2f}s \n"
+          f"{llm.prefix_cache_hit_rate[0]:.2f}%, {llm.prefix_cache_hit_rate[1]} cached block, {llm.prefix_cache_hit_rate[2]} cached tok") 
     print("-------------------------\n")
 
 if __name__ == "__main__":

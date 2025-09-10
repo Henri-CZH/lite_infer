@@ -27,13 +27,14 @@ class Block:
 # BlockManager 类就像是一个 “酒店管理员”，负责管理所有的 “房间”（内存块）
 class BlockManager:
 
-    def __init__(self, num_blocks: int, block_size: int):
+    def __init__(self, num_blocks: int, block_size: int, enable_prefix_caching: bool):
         assert num_blocks > 0 # 表示酒店里的房间总数
         self.block_size = block_size # 表示每个房间的大小
         self.blocks: list[Block] = [Block(i) for i in range(num_blocks)] # 包含所有 “房间” 的列表。
         self.hash_to_block_id: dict[int, int] = dict() # 用于通过 “指纹” 快速找到对应的 “房间编号”，就像通过客人的身份证号找到对应的房间号
         self.free_block_ids: deque[int] = deque(range(num_blocks)) # 存储着所有空闲的 “房间编号”
         self.used_block_ids: set[int] = set() # 存储着所有已被使用的 “房间编号”
+        self.enable_prefix_caching = enable_prefix_caching
 
 # 给 “房间” 里的内容生成一个唯一的 “指纹”
     @classmethod
@@ -72,8 +73,8 @@ class BlockManager:
         # 遍历客人需要的每个 “房间”，计算其 “指纹”
         for i in range(seq.num_blocks):
             token_ids = seq.block(i) # 客人需要当前房间的内容
-            h = self.compute_hash(token_ids, h) if len(token_ids) == self.block_size else -1 # “客人需要房间” 实际存放内容的大小与房间的大小一致，则计算该房间的 “指纹”
-            block_id = self.hash_to_block_id.get(h, -1) # 在 “指纹 - 房间编号” 字典中查找对应的 “房间编号
+            h = self.compute_hash(token_ids, h) if (self.enable_prefix_caching) and (len(token_ids) == self.block_size) else -1 # “客人需要房间” 实际存放内容的大小与房间的大小一致，则计算该房间的 “指纹”
+            block_id = self.hash_to_block_id.get(h, -1) if self.enable_prefix_caching else -1 # 在 “指纹 - 房间编号” 字典中查找对应的 “房间编号
             # block_id = -1
             if block_id == -1 or self.blocks[block_id].token_ids != token_ids:
                 cache_miss = True # 如果在 “指纹 - 房间编号” 字典中找不到对应的 “房间编号”，或者找到的 “房间” 里的内容与客人需要的内容不同，则发生 “缓存未命中”（cache_miss）
@@ -116,11 +117,12 @@ class BlockManager:
         last_block = self.blocks[block_table[-1]] # 进入最后一个房间
         # 如果客人的 “存放内容量” 刚好达到一个新的 “房间” 的起始位置 (len(seq) % self.block_size == 1)
         if len(seq) % self.block_size == 1:
-            assert last_block.hash != -1 # 确保最后一个房间已经被正确初始化，有有效的哈希值
+            if self.enable_prefix_caching:
+                assert last_block.hash != -1 # 确保最后一个房间已经被正确初始化，有有效的哈希值
             block_id = self.free_block_ids[0]
             self._allocate_block(block_id) # 则从空闲 “房间” 列表中取出一个 “房间” 分配给客人
             block_table.append(block_id) # 并添加到 “房间安排表” 中
-        elif len(seq) % self.block_size == 0: # 如果客人的 “使用量” 刚好填满一个 “房间”
+        elif (self.enable_prefix_caching) and (len(seq) % self.block_size == 0): # 如果客人的 “使用量” 刚好填满一个 “房间”
             assert last_block.hash == -1 # 确保最后一个房间还没有被计算哈希值，处于未完成状态
             token_ids = seq.block(seq.num_blocks-1) # 获取序列最后一个房间中的 内容 列表
             # 如果房间列表中有多个房间，获取倒数第二个房间的哈希值作为前缀，就像在给最后一个房间贴指纹时，参考上一个房间的指纹信息

@@ -92,3 +92,14 @@ class LLMEngine:
         if use_tqdm:
             pbar.close()
         return outputs
+    
+    @property
+    def prefix_cache_hit_rate(self):
+        return self.scheduler.actual_cached_block / self.scheduler.actual_num_block * 100, self.scheduler.actual_cached_block, self.scheduler.actual_cached_token # 计算prefix caching hit rate
+    
+    @property
+    def reset_scheduler(self):
+        self.scheduler.actual_cached_block = 0
+        self.scheduler.actual_cached_block = 0
+        self.scheduler.actual_num_tokens = 0
+        self.scheduler.actual_num_block = 0

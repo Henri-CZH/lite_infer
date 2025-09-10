@@ -10,13 +10,13 @@ from lite_infer.utils.context import get_context
 @triton.jit
 def store_kvcache_kernel(
     key_ptr,
-    key_stride,
+    key_stride, # num_heads * head_dim
     value_ptr,
-    value_stride,
+    value_stride, # num_heads * head_dim
     k_cache_ptr,
     v_cache_ptr,
     slot_mapping_ptr,
-    D: tl.constexpr,
+    D: tl.constexpr, # num_heads * head_dim
 ):
     idx = tl.program_id(0)
     key_offsets = idx * key_stride + tl.arange(0, D)
@@ -30,6 +30,13 @@ def store_kvcache_kernel(
 
 
 def store_kvcache(key: torch.Tensor, value: torch.Tensor, k_cache: torch.Tensor, v_cache: torch.Tensor, slot_mapping: torch.Tensor):
+    """
+    参数：
+        - q: (B*S,D).
+        - key: (B*S,D).
+        - value: (B*S,D)
+        - slot_mapping: (B*S, )
+    """    
     N, num_heads, head_dim = key.shape
     D = num_heads * head_dim
     assert key.stride(-1) == 1 and value.stride(-1) == 1
@@ -56,6 +63,15 @@ class Attention(nn.Module):
         self.k_cache = self.v_cache = torch.tensor([])
 
     def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
+        """
+        参数：
+            - q: (B*S,D).
+            - k: (B*S,D).
+            - v: (B*S,D)
+            - slot_mapping: (B*S, )
+        输出:
+            - o: (B*S,D)
+        """    
         o: torch.Tensor
         q = q.view(-1, self.num_heads, self.head_dim)
         k = k.view(-1, self.num_kv_heads, self.head_dim)

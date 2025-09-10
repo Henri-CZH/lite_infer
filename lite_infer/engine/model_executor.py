@@ -26,6 +26,7 @@ class ModelExecutor:
         self.rank = rank
         self.event = event
 
+        dist.init_process_group("nccl", "tcp://localhost:4333", world_size=self.world_size, rank=rank)
         torch.cuda.set_device(rank) # 设置 CUDA 设备
         default_dtype = torch.get_default_dtype() # 设置数据类型
         torch.set_default_dtype(hf_config.torch_dtype)
@@ -40,10 +41,24 @@ class ModelExecutor:
         # torch.set_default_device("cpu")
         # torch.set_default_dtype(default_dtype)
 
+        if self.world_size > 1:
+            if rank == 0:
+                self.shm = SharedMemory(name="lite_infer", create=True, size=2**20)
+                dist.barrier()
+            else:
+                dist.barrier()
+                self.shm = SharedMemory(name="lite_infer")
+                self.loop()
+
     def exit(self):
         # 该方法用于在程序退出时清理资源，关闭共享内存，销毁 CUDA 图和图池，同步 CUDA 操作，并销毁分布式进程组;
         # 演出结束后，我们要清理舞台。关闭演员之间的通信通道（共享内存），销毁录制的模板（CUDA 图和图池），
         # 确保所有演员都完成了谢幕（同步 CUDA 操作），最后解散剧组（销毁分布式进程组）。
+        if self.world_size > 1:
+            self.shm.close()
+            dist.barrier()
+            if self.rank == 0:
+                self.shm.unlink()
         if not self.enforce_eager:
             del self.graphs, self.graph_pool # 销毁 CUDA 图和图池
         torch.cuda.synchronize() # 同步 CUDA 操作
@@ -57,6 +72,23 @@ class ModelExecutor:
             self.call(method_name, *args) # 调用相应的方法执行任务
             if method_name == "exit":
                 break # 直到收到 exit 指令
+
+    def read_shm(self):
+        assert self.world_size > 1 and self.rank
+        self.event.wait()
+        n = int.from_bytes(self.shm.buf[0:4], "little")
+        method_name, *args = pickle.loads(self.shm.buf[4:n+4])
+        self.event.clear()
+        return method_name, args
+
+    def write_shm(self, method_name, *args):
+        assert self.world_size > 1 and not self.rank
+        data = pickle.dumps([method_name, *args])
+        n = len(data)
+        self.shm.buf[0:4] = n.to_bytes(4, "little")
+        self.shm.buf[4:n+4] = data
+        for event in self.event:
+            event.set()
 
     def call(self, method_name, *args):
         # 调用指定的方法执行任务。如果是主进程且处于分布式环境中，将任务信息写入共享内存；否则，直接调用相应的方法。
@@ -196,7 +228,7 @@ class ModelExecutor:
             top_ps.append(seq.top_p) # 提取top_p参数
         temperatures = torch.tensor(temperatures, dtype=torch.float32, pin_memory=True).cuda(non_blocking=True)
         top_ps = torch.tensor(top_ps, dtype=torch.float32, pin_memory=True).cuda(non_blocking=True)
-        return temperatures
+        return temperatures, top_ps
 
     @torch.inference_mode()
     def run_model(self, input_ids: torch.Tensor, positions: torch.Tensor, is_prefill: bool):
